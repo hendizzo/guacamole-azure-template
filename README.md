@@ -42,7 +42,15 @@ Internet → Load Balancer → [ VM1 | VM2 ] → Guacamole + PostgreSQL
 - One-click Azure Portal deployment
 - Interactive parameter configuration
 - Automated setup via cloud-init
+- **SAML SSO integration** (Azure AD, Okta, ADFS)
 - No manual configuration required
+
+### ✅ **Enterprise Authentication**
+- **SAML Single Sign-On** (Azure AD, Okta, ADFS)
+- Multi-factor authentication support
+- Group-based access control
+- Session management and timeout
+- Local authentication fallback
 
 ### ✅ **Secure by Default**
 - HTTPS-only access
@@ -75,6 +83,13 @@ Click the **Deploy to Azure** button above and fill in the parameters:
 - **Custom Domain** - Your domain name (optional)
 - **Email Address** - For SSL certificates
 - **Database Password** - PostgreSQL password (auto-generated if empty)
+
+#### SAML Single Sign-On (Optional):
+- **Enable SAML** - Integrate with identity providers
+- **Azure AD Tenant ID** - Your Azure Active Directory tenant
+- **Identity Provider** - Azure AD, Okta, ADFS, or Generic
+- **User Group** - Default group for SAML users
+- **Session Timeout** - Authentication session duration
 
 #### Advanced Options:
 - **VM Size** - Choose based on your workload
@@ -112,6 +127,9 @@ sudo /opt/letsencrypt-setup.sh your-domain.com
 | **Allowed Source IPs** | IP access restrictions | `*` (any) | ✅ |
 | **Enable SSH** | SSH access to VMs | `true` | ✅ |
 | **Auto-Shutdown** | Daily shutdown schedule | `false` | ❌ |
+| **Enable SAML** | SAML SSO integration | `false` | ❌ |
+| **Azure AD Tenant ID** | Azure AD tenant (if SAML enabled) | - | ❌ |
+| **SAML Provider** | Identity provider type | `Azure AD` | ❌ |
 
 ## 🔧 Post-Deployment
 
@@ -146,6 +164,73 @@ sudo /opt/letsencrypt-setup.sh your-domain.com
 - **Load Balancer**: Azure Portal → Load Balancer metrics
 - **VM Metrics**: Azure Monitor integration
 - **Container Logs**: Docker logs via SSH
+
+## 🔐 SAML SSO Configuration
+
+If you enabled SAML during deployment, enterprise authentication is automatically configured. Additional identity provider setup required:
+
+### **Azure AD Enterprise Application Setup**
+
+1. **Create Enterprise Application**
+   ```
+   Azure Portal → Enterprise Applications → New Application
+   → Create your own application → Non-gallery application
+   → Name: "Guacamole Remote Desktop"
+   ```
+
+2. **Configure Single Sign-On**
+   ```
+   Single sign-on → SAML
+   Identifier (Entity ID): https://your-domain.com/guacamole
+   Reply URL: https://your-domain.com/guacamole/api/ext/saml/callback
+   Sign on URL: https://your-domain.com/guacamole
+   ```
+
+3. **User Attributes & Claims**
+   - Required mappings are configured automatically:
+     - **Username**: `user.mail` → `username`
+     - **Full Name**: `user.displayname` → `fullname`
+     - **Email**: `user.mail` → `email`
+     - **Groups**: `user.groups` → `groups`
+
+4. **Assign Users and Groups**
+   ```
+   Users and groups → Add user/group
+   → Assign users who need Guacamole access
+   ```
+
+### **Supported Identity Providers**
+
+| Provider | Type | Features |
+|----------|------|----------|
+| **Azure AD** | Native | MFA, Conditional Access, Groups |
+| **Okta** | SAML 2.0 | Universal Directory, MFA |
+| **ADFS** | On-premises | Windows Authentication, Claims |
+| **Generic** | SAML 2.0 | Any compliant provider |
+
+### **SAML Features**
+
+- ✅ **Single Sign-On** - Corporate credential authentication
+- ✅ **Multi-Factor Authentication** - Inherited from IdP
+- ✅ **Group Mapping** - Automatic role assignment
+- ✅ **Session Management** - Configurable timeout policies
+- ✅ **Local Fallback** - Admin access always available
+
+### **SAML Troubleshooting**
+
+```bash
+# Check SAML extension status
+sudo docker exec guacamole_guacamole ls -la /opt/guacamole/saml/
+
+# View SAML logs
+sudo docker logs guacamole_guacamole | grep -i saml
+
+# Test SAML metadata
+curl -k https://your-domain.com/guacamole/api/ext/saml/metadata
+
+# Database SAML groups
+sudo docker exec guacamole_postgres psql -U guacamole -c "SELECT * FROM guacamole_user_group;"
+```
 
 ## 🛠️ Customization
 
