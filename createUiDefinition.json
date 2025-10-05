@@ -324,6 +324,110 @@
                 ]
             },
             {
+                "name": "samlConfig",
+                "label": "SAML Single Sign-On (Optional)",
+                "elements": [
+                    {
+                        "name": "samlInfo",
+                        "type": "Microsoft.Common.InfoBox",
+                        "options": {
+                            "icon": "Info",
+                            "text": "Enable SAML SSO to integrate with Azure AD, Okta, ADFS, or other identity providers. This allows users to login with their corporate credentials instead of local Guacamole accounts."
+                        }
+                    },
+                    {
+                        "name": "enableSAML",
+                        "type": "Microsoft.Common.CheckBox",
+                        "label": "Enable SAML Single Sign-On",
+                        "toolTip": "Enable SAML authentication integration with your identity provider."
+                    },
+                    {
+                        "name": "azureADTenantId",
+                        "type": "Microsoft.Common.TextBox",
+                        "label": "Azure AD Tenant ID",
+                        "toolTip": "Your Azure Active Directory Tenant ID (GUID format). Find this in Azure Portal > Azure AD > Properties.",
+                        "constraints": {
+                            "required": true,
+                            "regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                            "validationMessage": "Enter a valid Azure AD Tenant ID (GUID format)"
+                        },
+                        "visible": "[steps('samlConfig').enableSAML]"
+                    },
+                    {
+                        "name": "samlAttributeMapping",
+                        "type": "Microsoft.Common.DropDown",
+                        "label": "Identity Provider Type",
+                        "toolTip": "Select your identity provider for appropriate SAML attribute mapping.",
+                        "constraints": {
+                            "allowedValues": [
+                                {
+                                    "label": "Azure Active Directory",
+                                    "value": "azuread"
+                                },
+                                {
+                                    "label": "Okta",
+                                    "value": "okta"
+                                },
+                                {
+                                    "label": "Active Directory Federation Services (ADFS)",
+                                    "value": "adfs"
+                                },
+                                {
+                                    "label": "Generic SAML 2.0 Provider",
+                                    "value": "generic"
+                                }
+                            ],
+                            "required": true
+                        },
+                        "visible": "[steps('samlConfig').enableSAML]"
+                    },
+                    {
+                        "name": "samlDefaultGroup",
+                        "type": "Microsoft.Common.TextBox",
+                        "label": "Default SAML User Group",
+                        "toolTip": "Default group name for SAML users in Guacamole. Users will be automatically added to this group.",
+                        "constraints": {
+                            "required": true,
+                            "regex": "^[a-zA-Z0-9\\-_]{3,50}$",
+                            "validationMessage": "Group name must be 3-50 characters, letters, numbers, hyphens, and underscores only"
+                        },
+                        "visible": "[steps('samlConfig').enableSAML]"
+                    },
+                    {
+                        "name": "samlSessionTimeout",
+                        "type": "Microsoft.Common.DropDown",
+                        "label": "SAML Session Timeout",
+                        "toolTip": "Maximum session duration for SAML authenticated users.",
+                        "constraints": {
+                            "allowedValues": [
+                                {
+                                    "label": "1 Hour",
+                                    "value": 3600000
+                                },
+                                {
+                                    "label": "4 Hours",
+                                    "value": 14400000
+                                },
+                                {
+                                    "label": "8 Hours",
+                                    "value": 28800000
+                                },
+                                {
+                                    "label": "12 Hours (Recommended)",
+                                    "value": 43200000
+                                },
+                                {
+                                    "label": "24 Hours",
+                                    "value": 86400000
+                                }
+                            ],
+                            "required": true
+                        },
+                        "visible": "[steps('samlConfig').enableSAML]"
+                    }
+                ]
+            },
+            {
                 "name": "advancedConfig",
                 "label": "Advanced Configuration",
                 "elements": [
@@ -429,7 +533,12 @@
             "guacamoleDbPassword": "[steps('guacamoleConfig').databasePassword]",
             "enableAutoShutdown": "[steps('advancedConfig').enableAutoShutdown]",
             "autoShutdownTime": "[steps('advancedConfig').autoShutdownTime]",
-            "autoShutdownTimeZone": "[steps('advancedConfig').autoShutdownTimeZone]"
+            "autoShutdownTimeZone": "[steps('advancedConfig').autoShutdownTimeZone]",
+            "enableSAML": "[steps('samlConfig').enableSAML]",
+            "azureADTenantId": "[steps('samlConfig').azureADTenantId]",
+            "samlAttributeMapping": "[steps('samlConfig').samlAttributeMapping]",
+            "samlDefaultGroup": "[steps('samlConfig').samlDefaultGroup]",
+            "samlSessionTimeout": "[steps('samlConfig').samlSessionTimeout]"
         }
     }
 }
