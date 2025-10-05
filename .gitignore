@@ -1,0 +1,19 @@
+# Local parameter files with secrets
+azuredeploy.parameters.local.json
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

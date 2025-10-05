@@ -1,0 +1,589 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "description": "Deploy Apache Guacamole with high availability on Azure. This template creates a load-balanced setup with 2 VMs running Guacamole in Docker containers with PostgreSQL backend.",
+        "author": "Apache Guacamole Community"
+    },
+    "parameters": {
+        "projectName": {
+            "type": "string",
+            "metadata": {
+                "description": "Unique project name that will be used as prefix for all resources. Must be 3-11 characters, letters and numbers only."
+            },
+            "minLength": 3,
+            "maxLength": 11,
+            "defaultValue": "guacamole"
+        },
+        "resourceGroupName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the resource group where resources will be deployed. Will be created if it doesn't exist."
+            },
+            "defaultValue": "[concat(parameters('projectName'), '-rg')]"
+        },
+        "location": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure region where all resources will be deployed."
+            },
+            "defaultValue": "[resourceGroup().location]",
+            "allowedValues": [
+                "eastus",
+                "eastus2",
+                "westus",
+                "westus2",
+                "westus3",
+                "centralus",
+                "southcentralus",
+                "northcentralus",
+                "westcentralus",
+                "canadacentral",
+                "canadaeast",
+                "brazilsouth",
+                "northeurope",
+                "westeurope",
+                "francecentral",
+                "germanywestcentral",
+                "norwayeast",
+                "switzerlandnorth",
+                "uksouth",
+                "ukwest",
+                "australiaeast",
+                "australiasoutheast",
+                "eastasia",
+                "southeastasia",
+                "japaneast",
+                "japanwest",
+                "koreacentral",
+                "southafricanorth",
+                "centralindia",
+                "southindia",
+                "westindia"
+            ]
+        },
+        "adminUsername": {
+            "type": "string",
+            "metadata": {
+                "description": "Administrator username for the virtual machines. Cannot be 'admin', 'administrator', 'root', 'guest', or 'public'."
+            },
+            "minLength": 3,
+            "maxLength": 20,
+            "defaultValue": "azureuser"
+        },
+        "adminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Administrator password for the virtual machines. Must be at least 12 characters with uppercase, lowercase, number, and special character."
+            },
+            "minLength": 12,
+            "maxLength": 72
+        },
+        "domainName": {
+            "type": "string",
+            "metadata": {
+                "description": "Custom domain name for HTTPS access (optional). Example: guacamole.yourdomain.com. Leave blank to use public IP only."
+            },
+            "defaultValue": ""
+        },
+        "emailAddress": {
+            "type": "string",
+            "metadata": {
+                "description": "Email address for Let's Encrypt certificate registration and notifications."
+            },
+            "defaultValue": ""
+        },
+        "vmSize": {
+            "type": "string",
+            "metadata": {
+                "description": "Size of the virtual machines. Standard_D2s_v3 (2 vCPUs, 8GB RAM) is recommended for small to medium workloads."
+            },
+            "defaultValue": "Standard_D2s_v3",
+            "allowedValues": [
+                "Standard_B2s",
+                "Standard_B2ms",
+                "Standard_D2s_v3",
+                "Standard_D4s_v3",
+                "Standard_D8s_v3",
+                "Standard_E2s_v3",
+                "Standard_E4s_v3",
+                "Standard_F2s_v2",
+                "Standard_F4s_v2"
+            ]
+        },
+        "vmCount": {
+            "type": "int",
+            "metadata": {
+                "description": "Number of virtual machines for high availability (recommended: 2 for redundancy)."
+            },
+            "defaultValue": 2,
+            "minValue": 1,
+            "maxValue": 5
+        },
+        "guacamoleDbPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Password for the Guacamole PostgreSQL database. Leave blank to auto-generate a secure password."
+            },
+            "defaultValue": "[concat('Guac', uniqueString(resourceGroup().id, parameters('projectName')), '!')]",
+            "minLength": 8,
+            "maxLength": 128
+        },
+        "vnetName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the virtual network. Will be created if it doesn't exist."
+            },
+            "defaultValue": "[concat(parameters('projectName'), '-vnet')]"
+        },
+        "vnetAddressPrefix": {
+            "type": "string",
+            "metadata": {
+                "description": "Address space for the virtual network in CIDR notation."
+            },
+            "defaultValue": "10.0.0.0/16"
+        },
+        "subnetName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the subnet for Guacamole VMs."
+            },
+            "defaultValue": "[concat(parameters('projectName'), '-subnet')]"
+        },
+        "subnetAddressPrefix": {
+            "type": "string",
+            "metadata": {
+                "description": "Address space for the subnet in CIDR notation."
+            },
+            "defaultValue": "10.0.1.0/24"
+        },
+        "nsgName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Network Security Group."
+            },
+            "defaultValue": "[concat(parameters('projectName'), '-nsg')]"
+        },
+        "allowedSourceIPs": {
+            "type": "string",
+            "metadata": {
+                "description": "Source IP addresses allowed to access Guacamole (CIDR notation). Use '*' for any IP, or specify your public IP/range for security."
+            },
+            "defaultValue": "*"
+        },
+        "enableSSH": {
+            "type": "bool",
+            "metadata": {
+                "description": "Allow SSH access to virtual machines for management (port 22)."
+            },
+            "defaultValue": true
+        },
+        "sshSourceIPs": {
+            "type": "string",
+            "metadata": {
+                "description": "Source IP addresses allowed for SSH access (CIDR notation). Highly recommend restricting to your IP range."
+            },
+            "defaultValue": "*"
+        },
+        "storageAccountType": {
+            "type": "string",
+            "metadata": {
+                "description": "Storage type for VM disks. Premium_LRS offers better performance, Standard_LRS is more cost-effective."
+            },
+            "defaultValue": "Premium_LRS",
+            "allowedValues": [
+                "Standard_LRS",
+                "Standard_GRS",
+                "Premium_LRS"
+            ]
+        },
+        "enableAutoShutdown": {
+            "type": "bool",
+            "metadata": {
+                "description": "Enable automatic VM shutdown to save costs (VMs will shut down daily at specified time)."
+            },
+            "defaultValue": false
+        },
+        "autoShutdownTime": {
+            "type": "string",
+            "metadata": {
+                "description": "Time for automatic VM shutdown (24-hour format, e.g., 1900 for 7:00 PM)."
+            },
+            "defaultValue": "1900"
+        },
+        "autoShutdownTimeZone": {
+            "type": "string",
+            "metadata": {
+                "description": "Time zone for automatic shutdown."
+            },
+            "defaultValue": "UTC",
+            "allowedValues": [
+                "UTC",
+                "Pacific Standard Time",
+                "Mountain Standard Time", 
+                "Central Standard Time",
+                "Eastern Standard Time",
+                "GMT Standard Time",
+                "Central Europe Standard Time",
+                "Tokyo Standard Time",
+                "AUS Eastern Standard Time"
+            ]
+        }
+    },
+    "variables": {
+        "publicIPName": "[concat(parameters('projectName'), '-pip')]",
+        "loadBalancerName": "[concat(parameters('projectName'), '-lb')]",
+        "backendPoolName": "[concat(parameters('projectName'), '-backend')]",
+        "healthProbeName": "GuacamoleHealthProbe",
+        "availabilitySetName": "[concat(parameters('projectName'), '-avset')]",
+        "networkInterfacePrefix": "[concat(parameters('projectName'), '-nic')]",
+        "vmNamePrefix": "[concat(parameters('projectName'), '-vm')]",
+        "imageReference": {
+            "publisher": "Canonical",
+            "offer": "0001-com-ubuntu-server-jammy",
+            "sku": "22_04-lts-gen2",
+            "version": "latest"
+        },
+        "guacamolePassword": "[if(empty(parameters('guacamoleDbPassword')), concat('Guac', uniqueString(resourceGroup().id, parameters('projectName')), '!'), parameters('guacamoleDbPassword'))]",
+        "cloudInitData": "[base64(concat('#cloud-config\n\npackage_update: true\npackage_upgrade: true\n\npackages:\n  - apt-transport-https\n  - ca-certificates\n  - curl\n  - gnupg\n  - lsb-release\n  - docker.io\n  - docker-compose\n  - nginx\n  - snapd\n\nruncmd:\n  # Enable and start Docker\n  - systemctl enable docker\n  - systemctl start docker\n  - usermod -aG docker ', parameters('adminUsername'), '\n\n  # Create Guacamole directory structure\n  - mkdir -p /opt/guacamole\n  - mkdir -p /opt/guacamole/ssl\n  - mkdir -p /opt/guacamole/nginx\n  - mkdir -p /opt/guacamole/postgres-init\n\n  # Create docker-compose.yml\n  - |\n    cat > /opt/guacamole/docker-compose.yml << ''EOF''\n    version: \"3.8\"\n    services:\n      postgres:\n        image: postgres:15\n        container_name: guacamole_postgres\n        environment:\n          POSTGRES_DB: guacamole_db\n          POSTGRES_USER: guacamole\n          POSTGRES_PASSWORD: ', variables('guacamolePassword'), '\n        volumes:\n          - postgres_data:/var/lib/postgresql/data\n          - ./postgres-init:/docker-entrypoint-initdb.d\n        networks:\n          - guacamole-network\n        restart: unless-stopped\n\n      guacd:\n        image: guacamole/guacd:latest\n        container_name: guacamole_guacd\n        networks:\n          - guacamole-network\n        restart: unless-stopped\n\n      guacamole:\n        image: guacamole/guacamole:latest\n        container_name: guacamole_guacamole\n        depends_on:\n          - postgres\n          - guacd\n        environment:\n          GUACD_HOSTNAME: guacd\n          POSTGRES_DATABASE: guacamole_db\n          POSTGRES_HOSTNAME: postgres\n          POSTGRES_USER: guacamole\n          POSTGRES_PASSWORD: ', variables('guacamolePassword'), '\n        ports:\n          - \"8080:8080\"\n        networks:\n          - guacamole-network\n        restart: unless-stopped\n\n      nginx:\n        image: nginx:latest\n        container_name: guacamole_nginx\n        depends_on:\n          - guacamole\n        ports:\n          - \"80:80\"\n          - \"443:443\"\n          - \"8443:8443\"\n        volumes:\n          - ./nginx/nginx.conf:/etc/nginx/nginx.conf\n          - ./ssl:/etc/ssl/certs/guacamole\n        networks:\n          - guacamole-network\n        restart: unless-stopped\n\n    networks:\n      guacamole-network:\n        driver: bridge\n\n    volumes:\n      postgres_data:\n    EOF\n\n  # Generate database initialization SQL\n  - |\n    docker run --rm guacamole/guacamole:latest /opt/guacamole/bin/initdb.sh --postgresql > /opt/guacamole/postgres-init/001-initdb.sql\n\n  # Create nginx configuration\n  - |\n    cat > /opt/guacamole/nginx/nginx.conf << ''EOF''\n    events {\n        worker_connections 1024;\n    }\n\n    http {\n        upstream guacamole {\n            server guacamole:8080;\n        }\n\n        server {\n            listen 80;\n            server_name _;\n            return 301 https://$$host$$request_uri;\n        }\n\n        server {\n            listen 443 ssl http2;\n            listen 8443 ssl http2;\n            server_name _;\n\n            ssl_certificate /etc/ssl/certs/guacamole/server.crt;\n            ssl_certificate_key /etc/ssl/certs/guacamole/server.key;\n            ssl_protocols TLSv1.2 TLSv1.3;\n            ssl_ciphers HIGH:!aNULL:!MD5;\n\n            location / {\n                proxy_pass http://guacamole;\n                proxy_set_header Host $$host;\n                proxy_set_header X-Real-IP $$remote_addr;\n                proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;\n                proxy_set_header X-Forwarded-Proto $$scheme;\n                proxy_buffering off;\n            }\n\n            location /health {\n                access_log off;\n                return 200 \"healthy\";\n                add_header Content-Type text/plain;\n            }\n        }\n    }\n    EOF\n\n  # Generate self-signed certificate\n  - |\n    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\\n      -keyout /opt/guacamole/ssl/server.key \\\n      -out /opt/guacamole/ssl/server.crt \\\n      -subj \"/C=US/ST=State/L=City/O=Organization/CN=', if(empty(parameters('domainName')), 'localhost', parameters('domainName')), '\"\n\n  # Set permissions\n  - chown -R root:root /opt/guacamole\n  - chmod 600 /opt/guacamole/ssl/server.key\n  - chmod 644 /opt/guacamole/ssl/server.crt\n\n  # Create Let''s Encrypt setup script\n  - |\n    cat > /opt/letsencrypt-setup.sh << ''EOF''\n    #!/bin/bash\n    DOMAIN=\"$$1\"\n    EMAIL=\"', parameters('emailAddress'), '\"\n    \n    if [ -z \"$$DOMAIN\" ] || [ -z \"$$EMAIL\" ]; then\n        echo \"Usage: $$0 <domain>\"\n        echo \"Email is configured as: $$EMAIL\"\n        exit 1\n    fi\n    \n    # Install certbot\n    snap install core; snap refresh core\n    snap install --classic certbot\n    ln -sf /snap/bin/certbot /usr/bin/certbot\n    \n    # Stop services temporarily\n    cd /opt/guacamole\n    docker-compose down\n    \n    # Get certificate\n    certbot certonly --standalone -d \"$$DOMAIN\" --email \"$$EMAIL\" --agree-tos --non-interactive\n    \n    if [ $$? -eq 0 ]; then\n        # Copy certificates\n        cp /etc/letsencrypt/live/$$DOMAIN/fullchain.pem /opt/guacamole/ssl/server.crt\n        cp /etc/letsencrypt/live/$$DOMAIN/privkey.pem /opt/guacamole/ssl/server.key\n        chmod 600 /opt/guacamole/ssl/server.key\n        chmod 644 /opt/guacamole/ssl/server.crt\n        \n        # Setup auto-renewal\n        echo \"0 12 * * * /usr/bin/certbot renew --quiet && cp /etc/letsencrypt/live/$$DOMAIN/fullchain.pem /opt/guacamole/ssl/server.crt && cp /etc/letsencrypt/live/$$DOMAIN/privkey.pem /opt/guacamole/ssl/server.key && cd /opt/guacamole && docker-compose restart nginx\" | crontab -\n        \n        echo \"SSL certificate installed successfully for $$DOMAIN\"\n    else\n        echo \"Failed to obtain SSL certificate\"\n    fi\n    \n    # Restart services\n    docker-compose up -d\n    EOF\n  - chmod +x /opt/letsencrypt-setup.sh\n\n  # Start Guacamole\n  - cd /opt/guacamole\n  - docker-compose up -d\n\n  # Wait for services to be ready\n  - sleep 30\n\n  # Create health check script\n  - |\n    cat > /opt/health-check.sh << ''EOF''\n    #!/bin/bash\n    curl -f -k https://localhost:8443/health > /dev/null 2>&1\n    exit $$?\n    EOF\n  - chmod +x /opt/health-check.sh\n\nwrite_files:\n  - path: /etc/motd\n    content: |\n      \n      ===============================================\n      Apache Guacamole Server\n      ===============================================\n      \n      Guacamole Web Interface: https://YOUR_DOMAIN_OR_IP\n      Default Login: guacadmin / guacadmin\n      \n      SECURITY: Change default password immediately!\n      \n      Management Commands:\n      - View containers: sudo docker ps\n      - View logs: sudo docker logs guacamole_guacamole\n      - Restart services: cd /opt/guacamole && sudo docker-compose restart\n      - SSL setup: sudo /opt/letsencrypt-setup.sh YOUR_DOMAIN\n      \n      ===============================================\n'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2020-11-01",
+            "name": "[variables('publicIPName')]",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "Standard"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Static",
+                "dnsSettings": {
+                    "domainNameLabel": "[toLower(concat(parameters('projectName'), '-', uniqueString(resourceGroup().id)))]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2020-11-01",
+            "name": "[parameters('nsgName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "AllowHTTPS",
+                        "properties": {
+                            "description": "Allow HTTPS traffic",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "[parameters('allowedSourceIPs')]",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1000,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "AllowHTTP",
+                        "properties": {
+                            "description": "Allow HTTP traffic (redirects to HTTPS)",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "80",
+                            "sourceAddressPrefix": "[parameters('allowedSourceIPs')]",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1010,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "AllowHealthProbe",
+                        "properties": {
+                            "description": "Allow Azure Load Balancer health probe",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "8443",
+                            "sourceAddressPrefix": "AzureLoadBalancer",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1020,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "condition": "[parameters('enableSSH')]",
+                        "name": "AllowSSH",
+                        "properties": {
+                            "description": "Allow SSH access",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "22",
+                            "sourceAddressPrefix": "[parameters('sshSourceIPs')]",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1030,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2020-11-01",
+            "name": "[parameters('vnetName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+            ],
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[parameters('vnetAddressPrefix')]"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[parameters('subnetName')]",
+                        "properties": {
+                            "addressPrefix": "[parameters('subnetAddressPrefix')]",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Compute/availabilitySets",
+            "apiVersion": "2020-12-01",
+            "name": "[variables('availabilitySetName')]",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "Aligned"
+            },
+            "properties": {
+                "platformUpdateDomainCount": 2,
+                "platformFaultDomainCount": 2
+            }
+        },
+        {
+            "type": "Microsoft.Network/loadBalancers",
+            "apiVersion": "2020-11-01",
+            "name": "[variables('loadBalancerName')]",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "Standard"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPName'))]"
+            ],
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "LoadBalancerFrontEnd",
+                        "properties": {
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPName'))]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "[variables('backendPoolName')]"
+                    }
+                ],
+                "loadBalancingRules": [
+                    {
+                        "name": "HTTPSRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('loadBalancerName'), 'LoadBalancerFrontEnd')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('loadBalancerName'), variables('backendPoolName'))]"
+                            },
+                            "probe": {
+                                "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('loadBalancerName'), variables('healthProbeName'))]"
+                            },
+                            "protocol": "Tcp",
+                            "frontendPort": 443,
+                            "backendPort": 443,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "loadDistribution": "SourceIP"
+                        }
+                    },
+                    {
+                        "name": "HTTPRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('loadBalancerName'), 'LoadBalancerFrontEnd')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('loadBalancerName'), variables('backendPoolName'))]"
+                            },
+                            "probe": {
+                                "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('loadBalancerName'), variables('healthProbeName'))]"
+                            },
+                            "protocol": "Tcp",
+                            "frontendPort": 80,
+                            "backendPort": 80,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5
+                        }
+                    }
+                ],
+                "probes": [
+                    {
+                        "name": "[variables('healthProbeName')]",
+                        "properties": {
+                            "protocol": "Https",
+                            "port": 8443,
+                            "requestPath": "/health",
+                            "intervalInSeconds": 15,
+                            "numberOfProbes": 2
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2020-11-01",
+            "name": "[concat(variables('networkInterfacePrefix'), '-', copyIndex(1))]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]",
+                "[resourceId('Microsoft.Network/loadBalancers', variables('loadBalancerName'))]"
+            ],
+            "copy": {
+                "name": "nicLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnetName'))]"
+                            },
+                            "loadBalancerBackendAddressPools": [
+                                {
+                                    "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('loadBalancerName'), variables('backendPoolName'))]"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2020-12-01",
+            "name": "[concat(variables('vmNamePrefix'), '-', copyIndex(1))]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', concat(variables('networkInterfacePrefix'), '-', copyIndex(1)))]",
+                "[resourceId('Microsoft.Compute/availabilitySets', variables('availabilitySetName'))]"
+            ],
+            "copy": {
+                "name": "vmLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "properties": {
+                "availabilitySet": {
+                    "id": "[resourceId('Microsoft.Compute/availabilitySets', variables('availabilitySetName'))]"
+                },
+                "hardwareProfile": {
+                    "vmSize": "[parameters('vmSize')]"
+                },
+                "osProfile": {
+                    "computerName": "[concat(variables('vmNamePrefix'), '-', copyIndex(1))]",
+                    "adminUsername": "[parameters('adminUsername')]",
+                    "adminPassword": "[parameters('adminPassword')]",
+                    "customData": "[variables('cloudInitData')]"
+                },
+                "storageProfile": {
+                    "imageReference": "[variables('imageReference')]",
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "[parameters('storageAccountType')]"
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(variables('networkInterfacePrefix'), '-', copyIndex(1)))]"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "condition": "[parameters('enableAutoShutdown')]",
+            "type": "Microsoft.DevTestLab/schedules",
+            "apiVersion": "2018-09-15",
+            "name": "[concat('shutdown-computevm-', variables('vmNamePrefix'), '-', copyIndex(1))]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Compute/virtualMachines', concat(variables('vmNamePrefix'), '-', copyIndex(1)))]"
+            ],
+            "copy": {
+                "name": "shutdownLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "properties": {
+                "status": "Enabled",
+                "taskType": "ComputeVmShutdownTask",
+                "dailyRecurrence": {
+                    "time": "[parameters('autoShutdownTime')]"
+                },
+                "timeZoneId": "[parameters('autoShutdownTimeZone')]",
+                "targetResourceId": "[resourceId('Microsoft.Compute/virtualMachines', concat(variables('vmNamePrefix'), '-', copyIndex(1)))]"
+            }
+        }
+    ],
+    "outputs": {
+        "publicIPAddress": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPName'))).ipAddress]"
+        },
+        "publicFQDN": {
+            "type": "string", 
+            "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPName'))).dnsSettings.fqdn]"
+        },
+        "guacamoleURL": {
+            "type": "string",
+            "value": "[concat('https://', if(empty(parameters('domainName')), reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPName'))).ipAddress, parameters('domainName')))]"
+        },
+        "adminUsername": {
+            "type": "string",
+            "value": "[parameters('adminUsername')]"
+        },
+        "sshCommand": {
+            "type": "string",
+            "value": "[concat('ssh ', parameters('adminUsername'), '@', reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPName'))).ipAddress)]"
+        },
+        "defaultCredentials": {
+            "type": "object",
+            "value": {
+                "username": "guacadmin",
+                "password": "guacadmin",
+                "warning": "Change these credentials immediately after first login!"
+            }
+        },
+        "letsEncryptCommand": {
+            "type": "string",
+            "value": "[if(empty(parameters('domainName')), 'SSL setup: Configure a domain first, then run: sudo /opt/letsencrypt-setup.sh YOUR_DOMAIN', concat('SSL setup: sudo /opt/letsencrypt-setup.sh ', parameters('domainName')))]"
+        }
+    }
+}

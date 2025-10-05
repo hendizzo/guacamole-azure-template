@@ -1,0 +1,435 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+    "handler": "Microsoft.Azure.CreateUIDef",
+    "version": "0.1.2-preview",
+    "parameters": {
+        "basics": [
+                        {
+                        "name": "enableSSH",
+                        "type": "Microsoft.Common.CheckBox",
+                        "label": "Enable SSH Access",
+                        "toolTip": "Allow SSH access to virtual machines for management (port 22). Recommended for troubleshooting."
+                    },{
+                "name": "projectName",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Project Name",
+                "toolTip": "Unique project name used as prefix for all resources. Must be 3-11 characters, letters and numbers only.",
+                "constraints": {
+                    "required": true,
+                    "regex": "^[a-zA-Z0-9]{3,11}$",
+                    "validationMessage": "Project name must be 3-11 characters and contain only letters and numbers."
+                }
+            },
+            {
+                "name": "adminUsername",
+                "type": "Microsoft.Compute.UserNameTextBox",
+                "label": "VM Administrator Username",
+                "toolTip": "Administrator username for the virtual machines. Cannot be 'admin', 'administrator', 'root', 'guest', or 'public'.",
+                "constraints": {
+                    "required": true,
+                    "regex": "^[a-z][-\\w\\.]{0,64}$"
+                },
+                "osPlatform": "Linux"
+            },
+            {
+                "name": "adminPassword",
+                "type": "Microsoft.Common.PasswordBox",
+                "label": {
+                    "password": "VM Administrator Password",
+                    "confirmPassword": "Confirm password"
+                },
+                "toolTip": "Password for the VM administrator account. Must be at least 12 characters with uppercase, lowercase, number, and special character.",
+                "constraints": {
+                    "required": true,
+                    "regex": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^\\da-zA-Z]).{12,72}$",
+                    "validationMessage": "Password must be 12-72 characters with uppercase, lowercase, number, and special character."
+                },
+                "options": {
+                    "hideConfirmation": false
+                }
+            }
+        ],
+        "steps": [
+            {
+                "name": "vmConfig",
+                "label": "Virtual Machine Configuration",
+                "elements": [
+                    {
+                        "name": "vmConfigInfo",
+                        "type": "Microsoft.Common.InfoBox",
+                        "visible": true,
+                        "options": {
+                            "icon": "Info",
+                            "text": "Configure the virtual machines that will host Apache Guacamole. For production workloads, we recommend at least 2 VMs for high availability."
+                        }
+                    },
+                    {
+                        "name": "adminCredentials",
+                        "type": "Microsoft.Compute.CredentialsCombo",
+                        "label": {
+                            "authenticationType": "Authentication Type",
+                            "password": "VM Administrator Password",
+                            "confirmPassword": "Confirm password",
+                            "sshPublicKey": "SSH Public Key"
+                        },
+                        "toolTip": {
+                            "authenticationType": "Choose authentication method for VM access",
+                            "password": "Password for the VM administrator account. Must be at least 12 characters with uppercase, lowercase, number, and special character.",
+                            "sshPublicKey": "SSH public key for VM access (more secure than password)"
+                        },
+                        "constraints": {
+                            "required": true,
+                            "customPasswordRegex": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^\\da-zA-Z]).{12,72}$",
+                            "customValidationMessage": "Password must be 12-72 characters with uppercase, lowercase, number, and special character."
+                        },
+                        "options": {
+                            "hideConfirmation": false,
+                            "hidePassword": false
+                        },
+                        "osPlatform": "Linux",
+                        "visible": true
+                    },
+                    {
+                        "name": "vmSize",
+                        "type": "Microsoft.Compute.SizeSelector",
+                        "label": "Virtual Machine Size",
+                        "toolTip": "Size of the virtual machines. Standard_D2s_v3 (2 vCPUs, 8GB RAM) is recommended for small to medium workloads.",
+                        "recommendedSizes": [
+                            "Standard_D2s_v3",
+                            "Standard_D4s_v3",
+                            "Standard_B2s",
+                            "Standard_B2ms"
+                        ],
+                        "constraints": {
+                            "allowedSizes": [
+                                "Standard_B2s",
+                                "Standard_B2ms", 
+                                "Standard_D2s_v3",
+                                "Standard_D4s_v3",
+                                "Standard_D8s_v3",
+                                "Standard_E2s_v3",
+                                "Standard_E4s_v3",
+                                "Standard_F2s_v2",
+                                "Standard_F4s_v2"
+                            ]
+                        },
+                        "options": {
+                            "hideDiskTypeFilter": false
+                        },
+                        "osPlatform": "Linux",
+                        "imageReference": {
+                            "publisher": "Canonical",
+                            "offer": "0001-com-ubuntu-server-jammy",
+                            "sku": "22_04-lts-gen2"
+                        },
+                        "count": "[steps('vmConfig').vmCount]",
+                        "visible": true
+                    },
+                    {
+                        "name": "vmCount",
+                        "type": "Microsoft.Common.DropDown",
+                        "label": "Number of Virtual Machines",
+                        "toolTip": "Number of VMs for high availability. Recommended: 2 for redundancy.",
+                        "constraints": {
+                            "allowedValues": [
+                                {
+                                    "label": "1 VM (Single Instance)",
+                                    "value": 1
+                                },
+                                {
+                                    "label": "2 VMs (High Availability - Recommended)",
+                                    "value": 2
+                                },
+                                {
+                                    "label": "3 VMs (Enhanced Availability)",
+                                    "value": 3
+                                },
+                                {
+                                    "label": "4 VMs (Maximum Availability)",
+                                    "value": 4
+                                },
+                                {
+                                    "label": "5 VMs (Extreme Scale)",
+                                    "value": 5
+                                }
+                            ],
+                            "required": true
+                        }
+                    },
+                    {
+                        "name": "storageAccount",
+                        "type": "Microsoft.Storage.StorageAccountSelector",
+                        "label": "Diagnostic Storage Account",
+                        "toolTip": "Storage account for VM boot diagnostics (optional). Leave empty to create a new account.",
+                        "defaultValue": {
+                            "type": "Premium_LRS",
+                            "name": "[concat(basics('projectName'), 'diag', take(replace(guid(), '-', ''), 8))]"
+                        },
+                        "constraints": {
+                            "allowedTypes": [
+                                "Standard_LRS",
+                                "Standard_GRS", 
+                                "Premium_LRS"
+                            ]
+                        },
+                        "options": {
+                            "hideExisting": false
+                        },
+                        "visible": true
+                    }
+                ]
+            },
+            {
+                "name": "networkConfig",
+                "label": "Network Configuration",
+                "elements": [
+                    {
+                        "name": "networkInfo",
+                        "type": "Microsoft.Common.InfoBox",
+                        "visible": true,
+                        "options": {
+                            "icon": "Info",
+                            "text": "Configure networking for your Guacamole deployment. The load balancer will distribute traffic across your VMs."
+                        }
+                    },
+                    {
+                        "name": "virtualNetwork",
+                        "type": "Microsoft.Network.VirtualNetworkCombo",
+                        "label": {
+                            "virtualNetwork": "Virtual Network",
+                            "subnets": "Subnets"
+                        },
+                        "toolTip": {
+                            "virtualNetwork": "Virtual network for Guacamole deployment",
+                            "subnets": "Subnet for Guacamole VMs"
+                        },
+                        "defaultValue": {
+                            "name": "[concat(basics('projectName'), '-vnet')]",
+                            "addressPrefixSize": "/16"
+                        },
+                        "constraints": {
+                            "minAddressPrefixSize": "/24"
+                        },
+                        "options": {
+                            "hideExisting": false
+                        },
+                        "subnets": {
+                            "guacSubnet": {
+                                "label": "Guacamole Subnet",
+                                "defaultValue": {
+                                    "name": "[concat(basics('projectName'), '-subnet')]",
+                                    "addressPrefixSize": "/24"
+                                },
+                                "constraints": {
+                                    "minAddressPrefixSize": "/29",
+                                    "minAddressCount": "[steps('vmConfig').vmCount]",
+                                    "requireContiguousAddresses": true
+                                }
+                            }
+                        },
+                        "visible": true
+                    },
+                    {
+                        "name": "allowedSourceIPs",
+                        "type": "Microsoft.Common.TextBox",
+                        "label": "Allowed Source IPs",
+                        "defaultValue": "*",
+                        "toolTip": "Source IP addresses allowed to access Guacamole (CIDR notation). Use '*' for any IP, or specify your public IP/range for security. Example: 203.0.113.0/24",
+                        "constraints": {
+                            "required": true,
+                            "regex": "^(\\*|([0-9]{1,3}\\.){3}[0-9]{1,3}(\\/[0-9]{1,2})?)$",
+                            "validationMessage": "Enter '*' for any IP, or a valid CIDR range (e.g., 203.0.113.0/24)"
+                        },
+                        "visible": true
+                    },
+                    {
+                        "name": "enableSSH",
+                        "type": "Microsoft.Common.CheckBox",
+                        "label": "Enable SSH Access",
+                        "toolTip": "Allow SSH access to VMs for management (port 22). Recommended for troubleshooting.",
+                        "defaultValue": true,
+                        "visible": true
+                    },
+                    {
+                        "name": "sshSourceIPs",
+                        "type": "Microsoft.Common.TextBox",
+                        "label": "SSH Source IPs",
+                        "toolTip": "Source IP addresses allowed for SSH access. Highly recommend restricting to your IP range for security.",
+                        "constraints": {
+                            "required": true,
+                            "regex": "^(\\*|([0-9]{1,3}\\.){3}[0-9]{1,3}(\\/[0-9]{1,2})?)$",
+                            "validationMessage": "Enter '*' for any IP, or a valid CIDR range (e.g., 203.0.113.0/24)"
+                        },
+                        "visible": "[steps('networkConfig').enableSSH]"
+                    }
+                ]
+            },
+            {
+                "name": "guacamoleConfig", 
+                "label": "Guacamole Configuration",
+                "elements": [
+                    {
+                        "name": "guacamoleInfo",
+                        "type": "Microsoft.Common.InfoBox",
+                        "visible": true,
+                        "options": {
+                            "icon": "Info",
+                            "text": "Configure Apache Guacamole settings including domain name and SSL certificates."
+                        }
+                    },
+                    {
+                        "name": "domainName",
+                        "type": "Microsoft.Common.TextBox",
+                        "label": "Custom Domain Name (Optional)",
+                        "placeholder": "guacamole.yourdomain.com",
+                        "toolTip": "Custom domain name for HTTPS access. If provided, you'll need to configure DNS to point to the Azure public IP. Leave blank to use the Azure-generated FQDN.",
+                        "constraints": {
+                            "required": false,
+                            "regex": "^$|^[a-zA-Z0-9]([a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?)*$",
+                            "validationMessage": "Enter a valid domain name (e.g., guacamole.yourdomain.com) or leave blank."
+                        },
+                        "visible": true
+                    },
+                    {
+                        "name": "emailAddress",
+                        "type": "Microsoft.Common.TextBox",
+                        "label": "Email Address",
+                        "placeholder": "admin@yourdomain.com",
+                        "toolTip": "Email address for Let's Encrypt certificate registration and renewal notifications. Required if using custom domain.",
+                        "constraints": {
+                            "required": false,
+                            "regex": "^$|^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+                            "validationMessage": "Enter a valid email address or leave blank."
+                        },
+                        "visible": true
+                    },
+                    {
+                        "name": "databasePassword",
+                        "type": "Microsoft.Common.PasswordBox",
+                        "label": {
+                            "password": "Database Password (Optional)",
+                            "confirmPassword": "Confirm password"
+                        },
+                        "toolTip": "Password for the PostgreSQL database. Leave blank to auto-generate a secure password.",
+                        "constraints": {
+                            "required": false,
+                            "regex": "^$|^.{8,128}$",
+                            "validationMessage": "Password must be 8-128 characters if specified."
+                        },
+                        "options": {
+                            "hideConfirmation": false
+                        },
+                        "visible": true
+                    }
+                ]
+            },
+            {
+                "name": "advancedConfig",
+                "label": "Advanced Configuration",
+                "elements": [
+                    {
+                        "name": "advancedInfo",
+                        "type": "Microsoft.Common.InfoBox",
+                        "visible": true,
+                        "options": {
+                            "icon": "Info",
+                            "text": "Optional advanced settings for cost optimization and management."
+                        }
+                    },
+                    {
+                        "name": "enableAutoShutdown",
+                        "type": "Microsoft.Common.CheckBox", 
+                        "label": "Enable Automatic VM Shutdown",
+                        "toolTip": "Automatically shut down VMs daily at specified time to save costs. Useful for development/testing environments."
+                    },
+                    {
+                        "name": "autoShutdownTime",
+                        "type": "Microsoft.Common.TextBox",
+                        "label": "Auto-Shutdown Time",
+                        "defaultValue": "1900",
+                        "toolTip": "Time for automatic VM shutdown in 24-hour format (e.g., 1900 for 7:00 PM).",
+                        "constraints": {
+                            "required": true,
+                            "regex": "^([0-1]?[0-9]|2[0-3])[0-5][0-9]$",
+                            "validationMessage": "Enter time in 24-hour format (e.g., 1900 for 7:00 PM)"
+                        },
+                        "visible": "[steps('advancedConfig').enableAutoShutdown]"
+                    },
+                    {
+                        "name": "autoShutdownTimeZone",
+                        "type": "Microsoft.Common.DropDown",
+                        "label": "Time Zone",
+                        "defaultValue": "UTC",
+                        "toolTip": "Time zone for automatic shutdown schedule.",
+                        "constraints": {
+                            "allowedValues": [
+                                {
+                                    "label": "UTC (Coordinated Universal Time)",
+                                    "value": "UTC"
+                                },
+                                {
+                                    "label": "PST (Pacific Standard Time)",
+                                    "value": "Pacific Standard Time"
+                                },
+                                {
+                                    "label": "MST (Mountain Standard Time)",
+                                    "value": "Mountain Standard Time"
+                                },
+                                {
+                                    "label": "CST (Central Standard Time)",
+                                    "value": "Central Standard Time"
+                                },
+                                {
+                                    "label": "EST (Eastern Standard Time)",
+                                    "value": "Eastern Standard Time"
+                                },
+                                {
+                                    "label": "GMT (Greenwich Mean Time)",
+                                    "value": "GMT Standard Time"
+                                },
+                                {
+                                    "label": "CET (Central European Time)",
+                                    "value": "Central Europe Standard Time"
+                                },
+                                {
+                                    "label": "JST (Japan Standard Time)",
+                                    "value": "Tokyo Standard Time"
+                                },
+                                {
+                                    "label": "AEST (Australian Eastern Standard Time)",
+                                    "value": "AUS Eastern Standard Time"
+                                }
+                            ],
+                            "required": true
+                        },
+                        "visible": "[steps('advancedConfig').enableAutoShutdown]"
+                    }
+                ]
+            }
+        ],
+        "outputs": {
+            "projectName": "[basics('projectName')]",
+            "location": "[location()]",
+            "adminUsername": "[steps('vmConfig').adminCredentials.username]",
+            "adminPassword": "[steps('vmConfig').adminCredentials.password]",
+            "authenticationType": "[steps('vmConfig').adminCredentials.authenticationType]", 
+            "adminPublicKey": "[steps('vmConfig').adminCredentials.sshPublicKey]",
+            "vmSize": "[steps('vmConfig').vmSize]",
+            "vmCount": "[steps('vmConfig').vmCount]",
+            "storageAccountType": "[steps('vmConfig').storageAccount.type]",
+            "vnetName": "[steps('networkConfig').virtualNetwork.name]",
+            "vnetAddressPrefix": "[steps('networkConfig').virtualNetwork.addressPrefix]",
+            "subnetName": "[steps('networkConfig').virtualNetwork.subnets.guacSubnet.name]",
+            "subnetAddressPrefix": "[steps('networkConfig').virtualNetwork.subnets.guacSubnet.addressPrefix]",
+            "allowedSourceIPs": "[steps('networkConfig').allowedSourceIPs]",
+            "enableSSH": "[steps('networkConfig').enableSSH]",
+            "sshSourceIPs": "[steps('networkConfig').sshSourceIPs]",
+            "domainName": "[steps('guacamoleConfig').domainName]",
+            "emailAddress": "[steps('guacamoleConfig').emailAddress]",
+            "guacamoleDbPassword": "[steps('guacamoleConfig').databasePassword]",
+            "enableAutoShutdown": "[steps('advancedConfig').enableAutoShutdown]",
+            "autoShutdownTime": "[steps('advancedConfig').autoShutdownTime]",
+            "autoShutdownTimeZone": "[steps('advancedConfig').autoShutdownTimeZone]"
+        }
+    }
+}
